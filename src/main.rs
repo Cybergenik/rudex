@@ -1,9 +1,9 @@
 use std::fs;
 use std::env;
 use std::process;
-use std::thread;
-use std::sync::mpsc::{Sender, channel};
 use std::path::PathBuf;
+
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 fn usage() {
     println!("
@@ -16,33 +16,22 @@ OPTIONS:
     --help: Prints this message")
 }
 
-fn traverse(file: &PathBuf, ch: Sender<u64>) {
+fn traverse(file: &PathBuf) -> u64 {
     let dirs = fs::read_dir(file).unwrap_or_else(|err| {
         eprintln!("Rudex: \"{:}\" {}", file.to_str().unwrap(), err);
         process::exit(1);
     });
-    let mut total:u64 = 0;
-    let mut threads:u8 = 0;
-    let (tx, rx) = channel();
-    for entry in dirs.into_iter() {
-        let entry = entry.unwrap();
-        if entry.path().is_dir() {
-            threads += 1;
-            let tnx = tx.clone();
-            thread::spawn(move|| {
-                traverse(&entry.path(), tnx);
-            });
-        } else {
-            total += entry.metadata().unwrap().len();
-        }
-    }
-    for _ in 0..threads {
-        total += rx.recv().unwrap();
-    }
-    ch.send(total).unwrap_or_else(|err| {
-        eprintln!("Rudex: Channel error {}", err);
-        process::exit(1);
-    });
+    let dirs: Result<Vec<_>, _> = dirs.collect();
+    dirs.unwrap()
+        .par_iter()
+        .map(|entry| {
+            if entry.path().is_dir() {
+                traverse(&entry.path())
+            } else {
+                entry.metadata().unwrap().len()
+            }
+        })
+        .sum()
 }
 
 const KILOBYTE:u64 = 1024;
@@ -67,12 +56,7 @@ fn main() {
 
         let total_size:u64;
         if metadata.is_dir() {
-            let (tx, rx) = channel();
-            let fname = fname.clone();
-            thread::spawn(move|| {
-                traverse(&fname.into(), tx);
-            });
-            total_size = rx.recv().unwrap();
+            total_size = traverse(&fname.into());
         } else {
             total_size = metadata.len()
         }
