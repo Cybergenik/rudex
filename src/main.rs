@@ -18,14 +18,14 @@ OPTIONS:
 
 fn traverse(file: &PathBuf, ch: Sender<u64>) {
     let mut total:u64 = 0;
-    let mut threads:u8 = 0;
+    let mut threads:u32 = 0;
     let (tx, rx) = channel();
     let entries:Vec<PathBuf> = fs::read_dir(file)
         .expect("Rudex: unable to read dir")
         .map(|entry| entry.unwrap().path())
         .collect();
     for path in entries {
-        if path.exists() {
+        if path.is_file() || path.is_dir() {
             total += path.metadata().expect("Rudex: error reading file").len();
             if path.is_dir() {
                 threads += 1;
