@@ -62,13 +62,13 @@ fn main() {
         }
 
         if total_size < KILOBYTE {
-            println!("{} size: {:}", fname, total_size); 
+            println!("{} size: {:}B", fname, total_size);
         } else if total_size < MEGABYTE {
-            println!("{} size: {:.1}K", fname, total_size as f64/KILOBYTE as f64); 
+            println!("{} size: {:.1}KiB", fname, total_size as f64/KILOBYTE as f64);
         } else if total_size < GIGABYTE {
-            println!("{} size: {:.1}Mb", fname, total_size as f64/MEGABYTE as f64); 
+            println!("{} size: {:.1}MiB", fname, total_size as f64/MEGABYTE as f64);
         } else {
-            println!("{} size: {:.1}Gb", fname, total_size as f64/GIGABYTE as f64); 
+            println!("{} size: {:.1}GiB", fname, total_size as f64/GIGABYTE as f64);
         }
     }
 }
