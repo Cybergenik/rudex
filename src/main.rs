@@ -1,9 +1,10 @@
+use std::io;
 use std::fs;
 use std::env;
 use std::process;
-use std::thread;
-use std::sync::mpsc::{Sender, channel};
 use std::path::PathBuf;
+
+use tokio::task::JoinSet;
 
 fn usage() {
     println!("
@@ -16,40 +17,33 @@ OPTIONS:
     --help: Prints this message")
 }
 
-fn traverse(file: &PathBuf, ch: Sender<u64>) {
-    let dirs = fs::read_dir(file).unwrap_or_else(|err| {
-        eprintln!("Rudex: \"{:}\" {}", file.to_str().unwrap(), err);
-        process::exit(1);
-    });
+async fn traverse(file: &PathBuf) -> io::Result<u64> {
     let mut total:u64 = 0;
-    let mut threads:u8 = 0;
-    let (tx, rx) = channel();
-    for entry in dirs.into_iter() {
+    let mut tasks = JoinSet::new();
+    for entry in fs::read_dir(file)? {
         let entry = entry.unwrap();
         if entry.path().is_dir() {
-            threads += 1;
-            let tnx = tx.clone();
-            thread::spawn(move|| {
-                traverse(&entry.path(), tnx);
+            tasks.spawn(async move {
+                return traverse(&entry.path()).await.unwrap();
             });
         } else {
             total += entry.metadata().unwrap().len();
         }
     }
-    for _ in 0..threads {
-        total += rx.recv().unwrap();
+    tasks.detach_all();
+    while let Some(res) = tasks.join_next().await {
+        let sub_total:u64 = res.unwrap();
+        total += sub_total;
     }
-    ch.send(total).unwrap_or_else(|err| {
-        eprintln!("Rudex: Channel error {}", err);
-        process::exit(1);
-    });
+    Ok(total)
 }
 
 const KILOBYTE:u64 = 1024;
 const MEGABYTE:u64 = 1_048_576;
 const GIGABYTE:u64 = 1_073_741_824;
 
-fn main() {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     let args:Vec<String> = env::args().collect();
     if args.len() < 2 {
         eprintln!("Rudex: No args provided, for usage do: --help");
@@ -67,12 +61,8 @@ fn main() {
 
         let total_size:u64;
         if metadata.is_dir() {
-            let (tx, rx) = channel();
             let fname = fname.clone();
-            thread::spawn(move|| {
-                traverse(&fname.into(), tx);
-            });
-            total_size = rx.recv().unwrap();
+            total_size = traverse(&fname.into()).await.unwrap();
         } else {
             total_size = metadata.len()
         }
@@ -87,4 +77,5 @@ fn main() {
             println!("{} size: {:.1}Gb", fname, total_size as f64/GIGABYTE as f64); 
         }
     }
+    Ok(())
 }
