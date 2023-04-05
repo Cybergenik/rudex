@@ -17,23 +17,23 @@ OPTIONS:
 }
 
 fn traverse(file: &PathBuf, ch: Sender<u64>) {
-    let dirs = fs::read_dir(file).unwrap_or_else(|err| {
-        eprintln!("Rudex: \"{:}\" {}", file.to_str().unwrap(), err);
-        process::exit(1);
-    });
     let mut total:u64 = 0;
     let mut threads:u8 = 0;
     let (tx, rx) = channel();
-    for entry in dirs.into_iter() {
-        let entry = entry.unwrap();
-        if entry.path().is_dir() {
-            threads += 1;
-            let tnx = tx.clone();
-            thread::spawn(move|| {
-                traverse(&entry.path(), tnx);
-            });
-        } else {
-            total += entry.metadata().unwrap().len();
+    let entries:Vec<PathBuf> = fs::read_dir(file)
+        .expect("Rudex: unable to read dir")
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    for path in entries {
+        if path.exists() {
+            total += path.metadata().expect("Rudex: error reading file").len();
+            if path.is_dir() {
+                threads += 1;
+                let tnx = tx.clone();
+                thread::spawn(move|| {
+                    traverse(&path, tnx);
+                });
+            }
         }
     }
     for _ in 0..threads {
