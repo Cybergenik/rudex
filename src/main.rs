@@ -42,7 +42,7 @@ fn traverse(file: &PathBuf) -> Pin<Box<dyn Future<Output = u64>>> {
         }
         Ok(total)
     };
-    Box::pin(fut);
+    Box::pin(fut)
 }
 
 const KILOBYTE: u64 = 1024;
