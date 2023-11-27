@@ -1,10 +1,13 @@
 use std::io;
-use std::fs;
 use std::env;
 use std::process;
 use std::path::PathBuf;
+use std::u64;
 
+use tokio::fs;
 use tokio::task::JoinSet;
+
+use async_recursion::async_recursion;
 
 fn usage() {
     println!("
@@ -17,25 +20,32 @@ OPTIONS:
     --help: Prints this message")
 }
 
-async fn traverse(file: &PathBuf) -> io::Result<u64> {
-    let mut total:u64 = 0;
-    let mut tasks = JoinSet::new();
-    for entry in fs::read_dir(file)? {
-        let entry = entry.unwrap();
-        if entry.path().is_dir() {
-            tasks.spawn(async move {
-                return traverse(&entry.path()).await.unwrap();
-            });
-        } else {
-            total += entry.metadata().unwrap().len();
+#[async_recursion]
+async fn traverse(file: &PathBuf) -> u64 {
+    let mut total: u64 = 0;
+    let mut set = JoinSet::new();
+    let mut dirs = match fs::read_dir(file).await {
+        Ok(dirs) => dirs,
+        Err(err) => {
+            eprintln!("Rudex Error: {err}");
+            return total
+        },
+    };
+    while let Ok(Some(entry)) = dirs.next_entry().await {
+        let metadata = entry.metadata().await.unwrap();
+        if metadata.is_file() || metadata.is_dir() {
+            total += metadata.len();
+            if metadata.is_dir() {
+                set.spawn(async move {
+                    traverse(&entry.path()).await
+                });
+            }
         }
     }
-    tasks.detach_all();
-    while let Some(res) = tasks.join_next().await {
-        let sub_total:u64 = res.unwrap();
-        total += sub_total;
+    while let Some(task) = set.join_next().await { 
+        total += task.unwrap() as u64
     }
-    Ok(total)
+    total
 }
 
 const KILOBYTE:u64 = 1024;
@@ -54,7 +64,7 @@ async fn main() -> io::Result<()> {
         process::exit(0);
     }
     for fname in args[1..].iter() {
-        let metadata = fs::metadata(PathBuf::from(fname)).unwrap_or_else(|err| {
+        let metadata = fs::metadata(PathBuf::from(fname)).await.unwrap_or_else(|err| {
             eprintln!("Rudex: \"{}\" {}", fname, err);
             process::exit(1);
         });
@@ -62,7 +72,7 @@ async fn main() -> io::Result<()> {
         let total_size:u64;
         if metadata.is_dir() {
             let fname = fname.clone();
-            total_size = traverse(&fname.into()).await.unwrap();
+            total_size = traverse(&fname.into()).await;
         } else {
             total_size = metadata.len()
         }
